@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+<head lang="en">
+    <meta charset="UTF-8">
+    <title></title>
+    <script type="application/javascript" src="../client/keycode.js"></script>
+    <script type="application/javascript">
+
+        //---------------------------------------------
+        var EventType = {NONE:0,UP:1,DOWN:2,RIGHT:3,LEFT:4,STOP:5};
+        var State = {ACCE:1,MOVING:2,DEACCE:3,STOP:4};
+        var UNIT = 20;
+        var DEFAULT_SPEED = 100;
+        var ACCE_SPEED = 200;
+        //---------------------------------------------
+        function Player(obj){
+            obj = obj || {};
+            this.x = obj.x || canvasWidth/2;
+            this.y = obj.y || canvasHeight/2;
+            this.color = "red";
+            this.state = State.STOP;
+            this.events = [];
+            this.curSpeed = 0;
+            this.dir = EventType.STOP; // 当前的方向
+            this.lastDir = this.dir; // 上一次的方向
+        }
+        Player.prototype.updatePosition = function(dir,step){
+            switch (dir){
+                case EventType.UP:
+                    this.y -= step;
+                    if(this.y < 0){
+                        this.y = 0;
+                    }
+                    break;
+                case EventType.DOWN:
+                    this.y += step;
+                    if(this.y > canvasHeight){
+                        this.y = canvasHeight;
+                    }
+                    break;
+                case EventType.LEFT:
+                    this.x -= step;
+                    if(this.x < 0){
+                        this.x = 0;
+                    }
+                    break;
+                case EventType.RIGHT:
+                    this.x += step;
+                    if(this.x > canvasWidth){
+                        this.x = canvasWidth;
+                    }
+                    break;
+                case EventType.STOP:
+
+                    break;
+                default :
+                    break;
+            }
+        };
+        Player.prototype.update = function(){
+            if(this.events.length > 0){
+                var e = this.events[0];
+                this.events.splice(0,1);
+                this.lastDir = this.dir;
+                this.dir = e;
+                if(e === EventType.STOP){
+                    if(this.state === State.MOVING ||
+                            this.state == State.ACCE){
+                        this.state = State.DEACCE;
+                    }
+                }else{
+                    if(this.state === State.STOP ||
+                            this.state === State.DEACCE){
+                        this.state = State.ACCE;
+                    }
+                }
+            }
+
+            switch (this.state){
+                case State.ACCE:
+                    console.log("加速");
+                    // 加速
+                    this.curSpeed += (dtMs * ACCE_SPEED / 1000);
+                    if(this.curSpeed > DEFAULT_SPEED){
+                        this.curSpeed = DEFAULT_SPEED;
+                        this.state = State.MOVING;
+                    }
+                    var step = this.curSpeed * dtMs / 1000;
+                    this.updatePosition(this.dir,step);
+                    break;
+                case State.MOVING:
+                    console.log("正常运动");
+                    //  正常运动
+                    var step = DEFAULT_SPEED * dtMs / 1000;
+                    console.log(step);
+                    this.updatePosition(this.dir,step);
+                    break;
+                case State.DEACCE:
+                    console.log("减速运动");
+                    // 减速运动
+                    this.curSpeed -= (dtMs * ACCE_SPEED / 1000);
+                    if(this.curSpeed < 0){
+                        this.curSpeed = 0;
+                        this.state = State.STOP;
+                    }else{
+                        var step = this.curSpeed * dtMs / 1000;
+                        this.updatePosition(this.lastDir,step);
+                    }
+                    break;
+                default :
+                    break;
+            }
+        };
+        Player.prototype.render = function(ctx){
+            ctx.save();
+            ctx.fillStyle = this.color;
+            ctx.fillRect(this.x - UNIT/2,this.y - UNIT/2,UNIT,UNIT);
+            ctx.restore();
+        };
+
+
+
+        //---------------------------------------------
+        // 全局变量
+        var canvas,ctx;
+        var canvasWidth,canvasHeight;
+        var lastEvent = -1;
+        var player;
+        var dtMs = 0;
+        var startTime;
+
+        function start(){
+            canvas = document.getElementById("canvas");
+            canvasWidth = canvas.width;
+            canvasHeight = canvas.height;
+            ctx = canvas.getContext("2d");
+
+            // 注册事件
+            canvas.addEventListener("mousedown",mousedown,false);
+            canvas.addEventListener('mouseup',mouseup,false);
+            window.addEventListener("keydown",keydown,true);
+            window.addEventListener("keyup",keyup,true);
+
+
+            startTime = Date.now();
+            player = new Player();
+
+            gameLoop();
+        }
+
+        function mousedown(e){
+            console.log("mosuedown");
+
+        }
+        function mouseup(e){
+            console.log('mouseup');
+
+        }
+
+        function keydown(e){
+            console.log("keydown");
+            var curEvent = e.keyCode;
+            if(curEvent != lastEvent){
+                if(curEvent === keycode.UP){
+                    player.events.push(EventType.UP);
+                }else if(curEvent === keycode.DOWN){
+                    player.events.push(EventType.DOWN);
+                }else if(curEvent === keycode.LEFT){
+                    player.events.push(EventType.LEFT);
+                }else if(curEvent === keycode.RIGHT){
+                    player.events.push(EventType.RIGHT);
+                }
+            }
+        }
+        function keyup(e){
+            console.log("keyup");
+            var curEvent = e.keyCode;
+            if(curEvent === keycode.UP ||
+                    curEvent === keycode.DOWN ||
+                    curEvent === keycode.LEFT ||
+                    curEvent === keycode.RIGHT){
+                if(lastEvent != curEvent){
+                    player.events.push(EventType.STOP);
+                }
+            }
+        }
+
+        function gameLoop(){
+            var cur = Date.now();
+            dtMs = cur - startTime;
+            startTime = cur;
+            update();
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function update(){
+            player.update();
+        }
+        function render(){
+            ctx.clearRect(0,0,canvasWidth,canvasHeight);
+            player.render(ctx);
+        }
+    </script>
+
+</head>
+<body onload="start();">
+<canvas width="640px" height="480px" style="border: 1px;background-color: black;" id="canvas"></canvas>
+</body>
+</html>

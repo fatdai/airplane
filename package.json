@@ -1,0 +1,15 @@
+{
+  "name": "airplane",
+  "version": "1.0.0",
+  "description": "多人在线飞机大战",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "socket.io": "^1.7.2",
+    "underscore": "^1.8.3"
+  }
+}

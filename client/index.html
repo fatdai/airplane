@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html>
+<head lang="en">
+    <meta charset="UTF-8">
+    <title></title>
+    <script type="application/javascript" src="http://127.0.0.1:8888/socket.io/socket.io.js"></script>
+    <script type="application/javascript" src="http://127.0.0.1:8888/../node_modules/underscore/underscore.js"></script>
+    <script type="application/javascript" src="http://127.0.0.1:8888/../public/lib/class.js"></script>
+    <script type="application/javascript" src="http://127.0.0.1:8888/client/Utils.js"></script>
+    <script type="application/javascript" src="http://127.0.0.1:8888/client/keycode.js"></script>
+    <script type="application/javascript" src="http://127.0.0.1:8888/client/GameObject.js"></script>
+    <script type="application/javascript" src="http://127.0.0.1:8888/client/Player.js"></script>
+    <script type="application/javascript">
+
+        //---------------------------------------------
+        // 全局变量
+        var canvas,ctx;
+        var canvasWidth,canvasHeight;
+        var startTime;
+        var player;
+        var others = [];
+        var lastEventType;
+        var lastPoint = {x:0,y:0};
+
+//        var pendingActions = [];
+        var frameCount = 0;
+        var gameTimeMs = 0;  // 游戏开始了多长时间
+        var dtMs = 0;
+
+
+        // 事件
+        var EventType = {NONE:0,UP:1,DOWN:2,RIGHT:3,LEFT:4,MOUSEDOWN:5,STOP:6};
+        var State = {ACCE:1,MOVING:2,DEACCE:3,STOP:4};
+
+        function start(){
+
+            initContext();
+
+            var socket = io.connect('http://127.0.0.1:8888');
+
+            // 连接成功
+            socket.on('connect',function(){
+                console.log("连接成功!");
+                var obj = {};
+                obj.x = randomNum(0,canvasWidth);
+                obj.y = randomNum(0,canvasHeight);
+                obj.dir = EventType.STOP;
+                obj.id = -1;
+                obj.state = State.STOP;
+                obj.conn = socket;
+                player = new Player(obj);
+                console.log('send cmd:','start_con');
+                obj.conn = null;  // 否则会发包错误
+                sendWithDelay(socket,'start_con',obj);
+                socket.on('start_con_reply',function(data){
+                    console.log("[receive start_con_reply] data:",data);
+                    player.id = data.id;
+                    startGame();
+                });
+
+                // 新玩家加入
+                socket.on('initNewGameObject',function(data){
+                    var p = new GameObject(data);
+                    others.push(p);
+                });
+
+                // 同步场景,进游戏的时候同步一次场景
+//                socket.on('sceneinfo',function(data){
+//                    var arr = data.players;
+//                    for(var i = 0; i < arr.length; ++i){
+//                        if(arr[i].id != player.id){
+//                            var p = new GameObject(arr[i]);
+//                            others.push(p);
+//                        }
+//                    }
+//                });
+
+                // 其他玩家掉线
+                socket.on('userDisconnect',function(data){
+                    console.log('[receive userDisconnect] id:',data.id);
+                    for(var i = 0; i < others.length; ++i){
+                        console.log("others ids : ",others[i].id);
+                        if(others[i].id === data.id){
+                            others.splice(i,1);
+                            console.log('删除成功! at : ',Date.now());
+                            return;
+                        }
+                    }
+                });
+
+                // 有玩家移动
+                socket.on('playerMoveReply',function(cmd){
+
+                    console.log('[receive playerMoveReply]:',cmd.dir);
+                    // 如果收到的是自己的命令,则准备同步一次命令
+                    if(cmd.id === player.id){
+
+                        if(!player.checkPosition(cmd.pos)){
+                            console.log('需要修复位置!');
+                            //  暴力
+                            player.x = cmd.pos.x;
+                            player.y = cmd.pos.y;
+                        }
+
+                        // 从 pending 里面删除之前的命令
+                        player.executedEvents = player.executedEvents.map(function(a){
+                            if(a.frame > cmd.frame){
+                                return a;
+                            }
+                        }).filter(function(f){return f;});
+
+                        if(cmd.dir === EventType.STOP){
+
+                            // 判断是否还有未执行的命令
+                            if(player.unExecutedEvents.length > 0){
+                                // 暂时不理?
+                                console.log('还有未执行的事件!');
+                            }else{
+                                // 没有命令 就直接让玩家移动到这个目标位置
+                                // 来个减速
+                                console.log("没有命令了");
+                                player.x = cmd.pos.x;
+                                player.y = cmd.pos.y;
+                                player.curSpeed = 0;
+                                player.dir = EventType.STOP;
+                                player.state = State.STOP;
+                            }
+                        }
+                    }
+                });
+
+                // newAdd worldSnap
+                socket.on('snapshot',function(data){
+                    _.forEach(data.players,function(p){
+                        var obj = findById(p.id);
+                        if(obj){
+                            if(obj.id === player.id){
+                                player.sx = p.x;
+                                player.sy = p.y;
+                                player.sState = p.state;
+                                player.sdir = p.dir;
+                            }else{
+                                obj.sx = p.x;
+                                obj.sy = p.y;
+                                // 其他玩家直接设置方向
+                                obj.dir = p.dir;
+                            }
+                        }else{
+                            console.log("创建成功! at:",Date.now());
+
+                            // 创建新的物体
+                            var newObj = new GameObject(p);
+                            others.push(newObj);
+                        }
+                    });
+                });
+            });
+
+            // 断开连接
+            socket.on('disconnect',function(e){
+                console.log("断开连接 :",e);
+            });
+        }
+
+        function startGame(){
+
+            // 注册事件
+            canvas.addEventListener("mousedown",mousedown,false);
+            canvas.addEventListener('mouseup',mouseup,false);
+            window.addEventListener("keydown",keydown,true);
+            window.addEventListener("keyup",keyup,true);
+
+//            setInterval(function(){
+//                console.log("在线人数:",others.length + 1);
+//            },1000);
+
+            gameLoop();
+        }
+
+        function initContext(){
+            canvas = document.getElementById("canvas");
+            canvasWidth = canvas.width;
+            canvasHeight = canvas.height;
+            ctx = canvas.getContext("2d");
+            startTime = Date.now();
+        }
+
+        function gameLoop(){
+
+            var curTime = Date.now();
+            dtMs = curTime - startTime;
+            startTime = curTime;
+            gameTimeMs += dtMs;
+
+            update();
+            render();
+            frameCount++;
+            requestAnimationFrame(gameLoop);
+        }
+
+        function update(){
+            player.update();
+            for(var i = 0; i < others.length;++i){
+                others[i].update();
+            }
+        }
+        function render(){
+
+            ctx.clearRect(0,0,canvasWidth,canvasHeight);
+            player.render(ctx);
+            _.forEach(others,function(p){
+                p.render(ctx);
+            });
+        };
+
+
+
+        // input
+        function mousedown(e){
+//            if(e.which === 1){
+//                var point = getPointOnCanvas(e.x, e.y);
+//                if(point.x !== lastPoint.x || point.y !== lastPoint.y){
+//                    player.unExecutedEvents.push({type:EventType.MOUSEDOWN,point:point});
+//                }
+//            }
+        }
+        function mouseup(){}
+        function keydown(e){
+            var key = e.keyCode;
+            var curEventType = EventType.NONE;
+            switch (key) {
+                case keycode.UP:
+                    curEventType = EventType.UP;
+                    break;
+                case keycode.DOWN:
+                    curEventType = EventType.DOWN;
+                    break;
+                case keycode.LEFT:
+                    curEventType = EventType.LEFT;
+                    break;
+                case keycode.RIGHT:
+                    curEventType = EventType.RIGHT;
+                    break;
+                default :
+                    break;
+            }
+
+            addEvent(curEventType);
+        }
+
+        function addEvent(e){
+            // 不是想要的事件
+            if(e == EventType.NONE){
+                return;
+            }
+            // 短时间内一样的事件放一个就可以
+            if(lastEventType != e){
+                console.log("加入 命令!!!!");
+                player.unExecutedEvents.push({type:e});
+                lastEventType = e;
+            }
+        }
+
+        function keyup(e){
+            var key = e.keyCode;
+            if(key == keycode.UP ||
+                    key == keycode.DOWN ||
+                    key == keycode.LEFT ||
+                    key == keycode.RIGHT){
+                if(lastEventType != EventType.STOP){
+                    addEvent(EventType.STOP);
+                }
+            }else if(key === keycode.SPACE){
+                player.shoot();
+            }
+        }
+
+
+        function findById(id){
+            if(player.id === id){
+                return player;
+            }
+            for(var i = 0; i < others.length;++i){
+                if(others[i].id == id){
+                    return others[i];
+                }
+            }
+        }
+
+        function sendWithDelay(conn,type,data){
+            setTimeout(function(){
+                conn.emit(type,data);
+            },200);
+        }
+
+    </script>
+</head>
+<body onload="start();">
+<canvas width="640px" height="480px" style="border: 1px;background-color: black;" id="canvas"></canvas>
+</body>
+</html>
