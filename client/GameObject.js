@@ -14,10 +14,10 @@ GameObject = Class.extend({
         this.color = "green";
         this.w = 50;
         this.h = 50;
-
         this.sx = this.x; // 影子
         this.sy = this.y;
         this.scolor = "white";
+
     },
 
     update:function(){

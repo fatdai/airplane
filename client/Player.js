@@ -5,7 +5,7 @@
 'use strict';
 
 var DEFAULT_SPEED = 100;
-var ACCE_SPEED = 300; // 0.5秒可以加速到正常速度
+var ACCE_SPEED = 250; // 0.5秒可以加速到正常速度
 
 window.Player = GameObject.extend({
     init:function(obj){
@@ -144,8 +144,6 @@ window.Player = GameObject.extend({
                 others[i].setColor('blue');
 
                 // 发生了碰撞,告诉服务器,服务端进行验证
-
-
                 break;
             }else{
                 this.setColor('red');
